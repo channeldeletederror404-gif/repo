@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Squares</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #222;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #fff;
+            border: 2px solid #fff;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #controls {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px);
+            gap: 10px;
+        }
+        .btn {
+            background: #ccc;
+            border: none;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            user-select: none;
+            cursor: pointer;
+        }
+        .btn:active { background: #999; }
+        #up { grid-column: 2; grid-row: 1; }
+        #left { grid-column: 1; grid-row: 2; }
+        #down { grid-column: 2; grid-row: 2; }
+        #right { grid-column: 3; grid-row: 2; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <div id="controls">
+        <button class="btn" id="up">↑</button>
+        <button class="btn" id="left">←</button>
+        <button class="btn" id="down">↓</button>
+        <button class="btn" id="right">→</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        
+        // REPLACE WITH YOUR ACTUAL DEPLOYED BACKEND SERVER URL (e.g., on Render or Heroku)
+        const SERVER_URL = "ws://localhost:5555"; 
+        const socket = new WebSocket(SERVER_URL);
+
+        const SQUARE_SIZE = 50;
+        const speed = 7;
+        
+        let myId = null;
+        let gameState = {};
+        let keys = {};
+
+        // Track local player position locally until server responds
+        let localPlayer = { x: 100, y: 300 };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === "init") {
+                myId = data.id;
+            } else if (data.type === "state") {
+                gameState = data.state;
+                if (gameState[myId]) {
+                    localPlayer.x = gameState[myId].x;
+                    localPlayer.y = gameState[myId].y;
+                }
+            }
+        };
+
+        // Keyboard Event Listeners
+        window.addEventListener("keydown", (e) => keys[e.key] = true);
+        window.addEventListener("keyup", (e) => keys[e.key] = false);
+
+        // Mobile Button Listeners
+        const setupMobileBtn = (id, actionX, actionY) => {
+            const btn = document.getElementById(id);
+            let interval;
+            const start = () => { interval = setInterval(() => move(actionX, actionY), 1000/60); };
+            const stop = () => clearInterval(interval);
+            
+            btn.addEventListener("mousedown", start);
+            btn.addEventListener("mouseup", stop);
+            btn.addEventListener("touchstart", (e) => { e.preventDefault(); start(); });
+            btn.addEventListener("touchend", stop);
+        };
+
+        setupMobileBtn("up", 0, -speed);
+        setupMobileBtn("down", 0, speed);
+        setupMobileBtn("left", -speed, 0);
+        setupMobileBtn("right", speed, 0);
+
+        function move(dx, dy) {
+            localPlayer.x += dx;
+            localPlayer.y += dy;
+
+            // Boundary collision
+            localPlayer.x = Math.max(0, Math.min(canvas.width - SQUARE_SIZE, localPlayer.x));
+            localPlayer.y = Math.max(0, Math.min(canvas.height - SQUARE_SIZE, localPlayer.y));
+
+            // Send new positions to WebSocket server
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ x: localPlayer.x, y: localPlayer.y }));
+            }
+        }
+
+        // Main Game Loop
+        function gameLoop() {
+            let dx = 0, dy = 0;
+            if (keys["ArrowUp"] || keys["w"]) dy = -speed;
+            if (keys["ArrowDown"] || keys["s"]) dy = speed;
+            if (keys["ArrowLeft"] || keys["a"]) dx = -speed;
+            if (keys["ArrowRight"] || keys["d"]) dx = speed;
+
+            if (dx !== 0 || dy !== 0) {
+                move(dx, dy);
+            }
+
+            // Draw Everything
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let id in gameState) {
+                let player = gameState[id];
+                ctx.fillStyle = player.color;
+                ctx.fillRect(player.x, player.y, SQUARE_SIZE, SQUARE_SIZE);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
